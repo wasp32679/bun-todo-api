@@ -118,5 +118,23 @@ const server = Bun.serve({
         }
       },
     },
+    '/todos/:id': {
+      DELETE: async (req) => {
+        const id = parseInt(req.params.id);
+        try {
+          const query = db.prepare('delete from todos where id = ?');
+          const result = query.run(id);
+
+          if (result.changes === 0) {
+            return Response.json({ error: 'Todo not found' }, { status: 404 });
+          }
+
+          return Response.json(null, { status: 204 });
+        } catch (error) {
+          console.error(error);
+          return new Response('Internal Server Error', { status: 500 });
+        }
+      },
+    },
   },
 });
