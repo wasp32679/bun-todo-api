@@ -87,7 +87,7 @@ const server = Bun.serve({
 
           if (keys.length === 0) {
             return Response.json(
-              { error: 'Aucun champ à modifier' },
+              { error: 'No fields to update' },
               { status: 400 },
             );
           }
@@ -106,7 +106,7 @@ const server = Bun.serve({
             return Response.json({ error: 'Todo not found' }, { status: 404 });
           }
 
-          return Response.json({ message: 'Update succesful', id });
+          return Response.json({ message: 'Update successful', id });
         } catch (error) {
           console.error(error);
           return Response.json(
