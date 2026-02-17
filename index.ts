@@ -14,7 +14,6 @@ const TodoSchema = v.object({
 });
 
 const PatchTodoSchema = v.object({
-  id: v.number(),
   title: v.optional(v.string()),
   content: v.optional(v.nullable(v.string())),
   due_date: v.optional(v.nullable(v.pipe(v.string(), v.isoDate()))),
@@ -27,6 +26,11 @@ const PatchTodoSchema = v.object({
 });
 
 type Todo = v.InferOutput<typeof TodoSchema>;
+
+function parseId(req: any) {
+  const id = parseInt(req.params.id, 10);
+  return isNaN(id) ? null : id;
+}
 
 const server = Bun.serve({
   port: 3000,
@@ -76,14 +80,19 @@ const server = Bun.serve({
           return new Response('Internal Server Error', { status: 500 });
         }
       },
+    },
+
+    '/todos/:id': {
       PATCH: async (req) => {
+        const id = parseId(req);
+        if (id === null) {
+          return Response.json({ error: 'Invalid ID format' }, { status: 400 });
+        }
         try {
           const body = await req.json();
           const validated = v.parse(PatchTodoSchema, body);
 
-          const { id, ...updates } = validated;
-
-          const keys = Object.keys(updates);
+          const keys = Object.keys(validated);
 
           if (keys.length === 0) {
             return Response.json(
@@ -98,7 +107,7 @@ const server = Bun.serve({
             set ${setClause}
             where id = ?`);
 
-          const values = [...Object.values(updates), id];
+          const values = [...Object.values(validated), id];
 
           const result = query.run(...values);
 
@@ -108,20 +117,22 @@ const server = Bun.serve({
 
           return Response.json({ message: 'Update successful', id });
         } catch (error) {
-          console.error(error);
-          return Response.json(
-            {
-              error: 'Update failed',
-            },
-            { status: 400 },
-          );
+          if (error instanceof v.ValiError) {
+            return Response.json(
+              {
+                message: 'Validation failed',
+                issues: error.issues.map((i) => i.message),
+              },
+              { status: 400 },
+            );
+          }
+          console.error('Update failed:', error);
+          return new Response('Internal Server Error', { status: 500 });
         }
       },
-    },
-    '/todos/:id': {
       DELETE: async (req) => {
-        const id = parseInt(req.params.id, 10);
-        if (isNaN(id)) {
+        const id = parseId(req);
+        if (id === null) {
           return Response.json({ error: 'Invalid ID format' }, { status: 400 });
         }
         try {
