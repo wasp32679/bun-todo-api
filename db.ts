@@ -1,7 +1,7 @@
 import { Database } from 'bun:sqlite';
 
 const sql = `create table if not exists todos (
-    id text primary key,
+    id integer primary key autoincrement,
     title text not null,
     content text,
     due_date text,
