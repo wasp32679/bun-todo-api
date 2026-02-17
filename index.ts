@@ -120,7 +120,10 @@ const server = Bun.serve({
     },
     '/todos/:id': {
       DELETE: async (req) => {
-        const id = parseInt(req.params.id);
+        const id = parseInt(req.params.id, 10);
+        if (isNaN(id)) {
+          return Response.json({ error: 'Invalid ID format' }, { status: 400 });
+        }
         try {
           const query = db.prepare('delete from todos where id = ?');
           const result = query.run(id);
@@ -129,7 +132,7 @@ const server = Bun.serve({
             return Response.json({ error: 'Todo not found' }, { status: 404 });
           }
 
-          return Response.json(null, { status: 204 });
+          return new Response(null, { status: 204 });
         } catch (error) {
           console.error(error);
           return new Response('Internal Server Error', { status: 500 });
