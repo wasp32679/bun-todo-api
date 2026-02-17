@@ -27,6 +27,11 @@ const PatchTodoSchema = v.object({
 
 type Todo = v.InferOutput<typeof TodoSchema>;
 
+function parseId(req: any) {
+  const id = parseInt(req.params.id, 10);
+  return isNaN(id) ? null : id;
+}
+
 const server = Bun.serve({
   port: 3000,
   routes: {
@@ -79,8 +84,8 @@ const server = Bun.serve({
 
     '/todos/:id': {
       PATCH: async (req) => {
-        const id = parseInt(req.params.id, 10);
-        if (isNaN(id)) {
+        const id = parseId(req);
+        if (id === null) {
           return Response.json({ error: 'Invalid ID format' }, { status: 400 });
         }
         try {
@@ -112,18 +117,22 @@ const server = Bun.serve({
 
           return Response.json({ message: 'Update successful', id });
         } catch (error) {
-          console.error(error);
-          return Response.json(
-            {
-              error: 'Update failed',
-            },
-            { status: 400 },
-          );
+          if (error instanceof v.ValiError) {
+            return Response.json(
+              {
+                message: 'Validation failed',
+                issues: error.issues.map((i) => i.message),
+              },
+              { status: 400 },
+            );
+          }
+          console.error('Update failed:', error);
+          return new Response('Internal Server Error', { status: 500 });
         }
       },
       DELETE: async (req) => {
-        const id = parseInt(req.params.id, 10);
-        if (isNaN(id)) {
+        const id = parseId(req);
+        if (id === null) {
           return Response.json({ error: 'Invalid ID format' }, { status: 400 });
         }
         try {
