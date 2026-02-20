@@ -20,7 +20,17 @@ const todoService = {
       );
   },
 
-  todoChanges: (validated: PatchTodo, id: number, setClause: string) => {
+  todoChanges: (validated: PatchTodo, id: number) => {
+    const keys = Object.keys(validated);
+    const allowedColumns = ['title', 'content', 'due_date', 'done'];
+    const isValid = keys.every((key) => allowedColumns.includes(key));
+
+    if (!isValid) {
+      throw new Error('Invalid column update attempt');
+    }
+
+    const setClause = keys.map((key) => `${key} = ?`).join(', ');
+
     return db
       .prepare(`update todos set ${setClause} where id = ?`)
       .run(...Object.values(validated), id);

@@ -1,5 +1,4 @@
 import * as v from 'valibot';
-export type PatchTodo = v.InferOutput<typeof PatchTodoSchema>;
 
 const PatchTodoSchema = v.object({
   title: v.optional(v.string()),
@@ -13,4 +12,5 @@ const PatchTodoSchema = v.object({
   ),
 });
 
+export type PatchTodo = v.InferOutput<typeof PatchTodoSchema>;
 export default PatchTodoSchema;

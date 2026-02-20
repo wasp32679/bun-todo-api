@@ -87,17 +87,15 @@ const server = Bun.serve({
         try {
           const body = await req.json();
           const validated = v.parse(PatchTodoSchema, body);
-          const keys = Object.keys(validated);
 
-          if (keys.length === 0) {
+          if (Object.keys(validated).length === 0) {
             return Response.json(
               { error: 'No fields to update' },
               { status: 400, headers },
             );
           }
 
-          const setClause = keys.map((key) => `${key} = ?`).join(', ');
-          const result = todoService.todoChanges(validated, id, setClause);
+          const result = todoService.todoChanges(validated, id);
 
           if (result.changes === 0) {
             return Response.json(
@@ -116,7 +114,13 @@ const server = Bun.serve({
 
       if (method === 'DELETE') {
         try {
-          todoService.deleteTodo(id);
+          const result = todoService.deleteTodo(id);
+          if (result.changes === 0) {
+            return Response.json(
+              { error: 'Todo not found' },
+              { status: 404, headers },
+            );
+          }
           return new Response(null, { status: 204, headers });
         } catch (e) {
           return handleErrors(e);

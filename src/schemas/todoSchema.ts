@@ -1,5 +1,4 @@
 import * as v from 'valibot';
-export type Todo = v.InferOutput<typeof TodoSchema>;
 
 export const TodoSchema = v.object({
   title: v.string(),
@@ -13,4 +12,5 @@ export const TodoSchema = v.object({
   ),
 });
 
+export type Todo = v.InferOutput<typeof TodoSchema>;
 export default TodoSchema;
