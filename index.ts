@@ -1,15 +1,13 @@
 import * as v from 'valibot';
 import db from './db';
-import index from './index.html';
 
 const TodoSchema = v.object({
   title: v.string(),
   content: v.optional(v.string()),
-  due_date: v.optional(
-    v.pipe(
-      v.string(),
-      v.isoDate('Due date must be a valid ISO 8601 date string.'),
-    ),
+  due_date: v.optional(v.nullable(v.pipe(v.string(), v.isoDate()))),
+  done: v.pipe(
+    v.boolean(),
+    v.transform((v) => (v ? 1 : 0)),
   ),
 });
 
@@ -25,130 +23,150 @@ const PatchTodoSchema = v.object({
   ),
 });
 
-type Todo = v.InferOutput<typeof TodoSchema>;
+const headers = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Prefer',
+};
 
-function parseId(req: any) {
-  const id = parseInt(req.params.id, 10);
-  return isNaN(id) ? null : id;
+function handleErrors(error: any) {
+  if (error instanceof v.ValiError) {
+    return Response.json(
+      {
+        error: 'Validation failed',
+        details: error.issues.map((i) => i.message),
+      },
+      { status: 400, headers },
+    );
+  }
+  console.error(error);
+  return new Response('Internal Server Error', { status: 500, headers });
 }
 
 const server = Bun.serve({
   port: 3000,
-  routes: {
-    '/': index,
-    '/todos': {
-      GET: () => {
+  async fetch(req) {
+    const url = new URL(req.url);
+    const method = req.method;
+
+    const path =
+      url.pathname.endsWith('/') && url.pathname.length > 1
+        ? url.pathname.slice(0, -1)
+        : url.pathname;
+
+    if (method === 'OPTIONS') {
+      return new Response(null, { headers, status: 204 });
+    }
+
+    const pathParts = path.split('/');
+    const queryParamId = url.searchParams.get('id');
+
+    let id = NaN;
+    if (queryParamId && queryParamId.startsWith('eq.')) {
+      id = parseInt(queryParamId.split('.')[1] as string, 10);
+    } else {
+      id = parseInt(pathParts[2] ?? '', 10);
+    }
+
+    const isItemRoute = !isNaN(id) && path.startsWith('/todos');
+
+    if (path === '/todos') {
+      if (method === 'GET') {
         try {
           const data = db.query('select * from todos').all();
-          return Response.json(data);
-        } catch (error) {
-          console.error('Failed to fetch todos:', error);
-          return new Response('Internal Server Error', { status: 500 });
+          return Response.json(data, { headers });
+        } catch (e) {
+          return handleErrors(e);
         }
-      },
-      POST: async (req) => {
+      }
+
+      if (method === 'POST') {
         try {
           const body = await req.json();
-          const validated: Todo = v.parse(TodoSchema, body);
+          const validated = v.parse(TodoSchema, body);
 
-          const insertTodo = db.prepare(
-            'insert into todos (title, content, due_date) values ( ?, ?, ?)',
-          );
-
-          const result = insertTodo.run(
-            validated.title,
-            validated.content ?? null,
-            validated.due_date ?? null,
-          );
-          const newId = result.lastInsertRowid;
+          const result = db
+            .prepare(
+              'insert into todos (title, content, due_date, done) values (?, ?, ?, ?)',
+            )
+            .run(
+              validated.title,
+              validated.content ?? null,
+              validated.due_date ?? null,
+              validated.done,
+            );
 
           return Response.json(
-            { id: Number(newId), ...validated },
-            { status: 201 },
+            { id: Number(result.lastInsertRowid), ...validated },
+            { status: 201, headers },
           );
-        } catch (error) {
-          if (error instanceof v.ValiError) {
-            return Response.json(
-              {
-                message: 'Validation failed',
-                issues: error.issues.map((i) => i.message),
-              },
-              { status: 400 },
-            );
-          }
-          console.error('Failed to create todo:', error);
-          return new Response('Internal Server Error', { status: 500 });
+        } catch (e) {
+          return handleErrors(e);
         }
-      },
-    },
+      }
+    }
 
-    '/todos/:id': {
-      PATCH: async (req) => {
-        const id = parseId(req);
-        if (id === null) {
-          return Response.json({ error: 'Invalid ID format' }, { status: 400 });
-        }
+    if (isItemRoute) {
+      if (isNaN(id)) {
+        return Response.json(
+          { error: 'Invalid ID format' },
+          { status: 400, headers },
+        );
+      }
+
+      if (method === 'PATCH') {
         try {
           const body = await req.json();
           const validated = v.parse(PatchTodoSchema, body);
-
           const keys = Object.keys(validated);
 
           if (keys.length === 0) {
             return Response.json(
               { error: 'No fields to update' },
-              { status: 400 },
+              { status: 400, headers },
             );
           }
 
           const setClause = keys.map((key) => `${key} = ?`).join(', ');
-          const query = db.prepare(`
-            update todos
-            set ${setClause}
-            where id = ?`);
-
-          const values = [...Object.values(validated), id];
-
-          const result = query.run(...values);
+          const result = db
+            .prepare(`update todos set ${setClause} where id = ?`)
+            .run(...Object.values(validated), id);
 
           if (result.changes === 0) {
-            return Response.json({ error: 'Todo not found' }, { status: 404 });
-          }
-
-          return Response.json({ message: 'Update successful', id });
-        } catch (error) {
-          if (error instanceof v.ValiError) {
             return Response.json(
-              {
-                message: 'Validation failed',
-                issues: error.issues.map((i) => i.message),
-              },
-              { status: 400 },
+              { error: 'Todo not found' },
+              { status: 404, headers },
             );
           }
-          console.error('Update failed:', error);
-          return new Response('Internal Server Error', { status: 500 });
+
+          const updatedTodo = db
+            .prepare('select * from todos where id = ?')
+            .get(id);
+
+          return Response.json(updatedTodo, { headers });
+        } catch (e) {
+          return handleErrors(e);
         }
-      },
-      DELETE: async (req) => {
-        const id = parseId(req);
-        if (id === null) {
-          return Response.json({ error: 'Invalid ID format' }, { status: 400 });
-        }
+      }
+
+      if (method === 'DELETE') {
         try {
-          const query = db.prepare('delete from todos where id = ?');
-          const result = query.run(id);
+          const result = db.prepare('delete from todos where id = ?').run(id);
 
           if (result.changes === 0) {
-            return Response.json({ error: 'Todo not found' }, { status: 404 });
+            return Response.json(
+              { error: 'Todo not found' },
+              { status: 404, headers },
+            );
           }
 
-          return new Response(null, { status: 204 });
-        } catch (error) {
-          console.error(error);
-          return new Response('Internal Server Error', { status: 500 });
+          return new Response(null, { status: 204, headers });
+        } catch (e) {
+          return handleErrors(e);
         }
-      },
-    },
+      }
+    }
+
+    return new Response('Not Found', { status: 404, headers });
   },
 });
