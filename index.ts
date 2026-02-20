@@ -1,29 +1,7 @@
 import * as v from 'valibot';
-import db from './db';
-
-const TodoSchema = v.object({
-  title: v.string(),
-  content: v.optional(v.string()),
-  due_date: v.optional(v.nullable(v.pipe(v.string(), v.isoDate()))),
-  done: v.optional(
-    v.pipe(
-      v.boolean(),
-      v.transform((v) => (v ? 1 : 0)),
-    ),
-  ),
-});
-
-const PatchTodoSchema = v.object({
-  title: v.optional(v.string()),
-  content: v.optional(v.nullable(v.string())),
-  due_date: v.optional(v.nullable(v.pipe(v.string(), v.isoDate()))),
-  done: v.optional(
-    v.pipe(
-      v.boolean(),
-      v.transform((v) => (v ? 1 : 0)),
-    ),
-  ),
-});
+import PatchTodoSchema from './src/schemas/patchTodoSchema';
+import TodoSchema from './src/schemas/todoSchema';
+import todoService from './src/services/todo.service';
 
 const headers = {
   'Access-Control-Allow-Origin': '*',
@@ -50,19 +28,13 @@ const server = Bun.serve({
   async fetch(req) {
     const url = new URL(req.url);
     const method = req.method;
-
     const path =
       url.pathname.endsWith('/') && url.pathname.length > 1
         ? url.pathname.slice(0, -1)
         : url.pathname;
-
-    if (method === 'OPTIONS') {
-      return new Response(null, { headers, status: 204 });
-    }
-
     const pathParts = path.split('/');
-    const queryParamId = url.searchParams.get('id');
 
+    const queryParamId = url.searchParams.get('id');
     let id = NaN;
     if (queryParamId && queryParamId.startsWith('eq.')) {
       id = parseInt(queryParamId.split('.')[1] as string, 10);
@@ -72,10 +44,14 @@ const server = Bun.serve({
 
     const isItemRoute = !isNaN(id) && path.startsWith('/todos');
 
+    if (method === 'OPTIONS') {
+      return new Response(null, { headers, status: 204 });
+    }
+
     if (path === '/todos') {
       if (method === 'GET') {
         try {
-          const data = db.query('select * from todos').all();
+          const data = todoService.getAll();
           return Response.json(data, { headers });
         } catch (e) {
           return handleErrors(e);
@@ -87,16 +63,7 @@ const server = Bun.serve({
           const body = await req.json();
           const validated = v.parse(TodoSchema, body);
 
-          const result = db
-            .prepare(
-              'insert into todos (title, content, due_date, done) values (?, ?, ?, ?)',
-            )
-            .run(
-              validated.title,
-              validated.content ?? null,
-              validated.due_date ?? null,
-              validated.done ?? null,
-            );
+          const result = todoService.createTodo(validated);
 
           return Response.json(
             { id: Number(result.lastInsertRowid), ...validated },
@@ -120,19 +87,15 @@ const server = Bun.serve({
         try {
           const body = await req.json();
           const validated = v.parse(PatchTodoSchema, body);
-          const keys = Object.keys(validated);
 
-          if (keys.length === 0) {
+          if (Object.keys(validated).length === 0) {
             return Response.json(
               { error: 'No fields to update' },
               { status: 400, headers },
             );
           }
 
-          const setClause = keys.map((key) => `${key} = ?`).join(', ');
-          const result = db
-            .prepare(`update todos set ${setClause} where id = ?`)
-            .run(...Object.values(validated), id);
+          const result = todoService.todoChanges(validated, id);
 
           if (result.changes === 0) {
             return Response.json(
@@ -141,9 +104,7 @@ const server = Bun.serve({
             );
           }
 
-          const updatedTodo = db
-            .prepare('select * from todos where id = ?')
-            .get(id);
+          const updatedTodo = todoService.editedTodo(id);
 
           return Response.json(updatedTodo, { headers });
         } catch (e) {
@@ -153,15 +114,13 @@ const server = Bun.serve({
 
       if (method === 'DELETE') {
         try {
-          const result = db.prepare('delete from todos where id = ?').run(id);
-
+          const result = todoService.deleteTodo(id);
           if (result.changes === 0) {
             return Response.json(
               { error: 'Todo not found' },
               { status: 404, headers },
             );
           }
-
           return new Response(null, { status: 204, headers });
         } catch (e) {
           return handleErrors(e);
