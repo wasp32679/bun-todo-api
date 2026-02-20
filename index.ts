@@ -5,9 +5,11 @@ const TodoSchema = v.object({
   title: v.string(),
   content: v.optional(v.string()),
   due_date: v.optional(v.nullable(v.pipe(v.string(), v.isoDate()))),
-  done: v.pipe(
-    v.boolean(),
-    v.transform((v) => (v ? 1 : 0)),
+  done: v.optional(
+    v.pipe(
+      v.boolean(),
+      v.transform((v) => (v ? 1 : 0)),
+    ),
   ),
 });
 
@@ -29,7 +31,7 @@ const headers = {
   'Access-Control-Allow-Headers': 'Content-Type, Prefer',
 };
 
-function handleErrors(error: any) {
+function handleErrors(error: unknown) {
   if (error instanceof v.ValiError) {
     return Response.json(
       {
@@ -93,7 +95,7 @@ const server = Bun.serve({
               validated.title,
               validated.content ?? null,
               validated.due_date ?? null,
-              validated.done,
+              validated.done ?? null,
             );
 
           return Response.json(
